@@ -1,73 +1,113 @@
-import os, io, pathlib, hashlib, json, datetime as dt, requests, pandas as pd
+import pathlib
+import hashlib
+import json
+import datetime as dt
+import requests
+import pandas as pd
+
 from arelle import Cntlr, ModelManager
 from arelle.ModelXbrl import ModelXbrl
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-RAW = ROOT / "data" / "raw"; OUT = ROOT / "data" / "out"
-RAW.mkdir(parents=True, exist_ok=True); OUT.mkdir(parents=True, exist_ok=True)
+RAW = ROOT / "data" / "raw"
+OUT = ROOT / "data" / "out"
+RAW.mkdir(parents=True, exist_ok=True)
+OUT.mkdir(parents=True, exist_ok=True)
 
-# Démo : tags finance (ESEF) + tags climat (ESRS) déjà prévus
+# Démo : tags finance (IFRS/ESEF) + tags climat (ESRS) prêts
 FACT_LOCALNAMES = [
-    "Revenue", "OperatingProfitLoss",
+    "Revenue",
+    "OperatingProfitLoss",
     "GreenhouseGasScope1Emissions",
     "GreenhouseGasScope2EmissionsLocationBased",
     "GreenhouseGasScope2EmissionsMarketBased",
 ]
 
+
 def download(url: str) -> pathlib.Path:
+    """Télécharge en mode robuste (ZIP lourds ok)."""
     fn = url.split("/")[-1] or f"file_{hashlib.sha1(url.encode()).hexdigest()}.xbrl"
-    p = RAW / fn
-    if p.exists():
-        return p
-    with requests.get(url, timeout=120, allow_redirects=True, stream=True,
-                      headers={"User-Agent":"tracecube/0.1"}) as r:
+    path = RAW / fn
+    if path.exists():
+        return path
+    with requests.get(
+        url,
+        timeout=120,
+        allow_redirects=True,
+        stream=True,
+        headers={"User-Agent": "tracecube/0.1"},
+    ) as r:
         r.raise_for_status()
-        with open(p, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024*1024):
+        with open(path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
                 if chunk:
                     f.write(chunk)
-    return p
+    return path
+
 
 def load_xbrl(path: str) -> ModelXbrl:
+    """Charge l'instance XBRL avec Arelle en mode offline (utilise les taxo locales)."""
     ctrl = Cntlr.Cntlr(logFileName=None)
-    # utilise les taxo packages que tu as chargés, évite les fetch web
     ctrl.webCache.workOffline = True
     mm = ModelManager.initialize(ctrl)
     return mm.load(path)
 
-def extract_facts(x: ModelXbrl, wanted_locals):
-    rows = []
+
+def _format_unit(fact) -> str | None:
+    """Formate l'unité (ex: ISO4217.EUR)."""
+    if not getattr(fact, "unit", None) or not fact.unit.measures:
+        return None
+    num = ["*".join(u) for u in (fact.unit.measures[0] or [])]
+    den = ["*".join(u) for u in (fact.unit.measures[1] or [])]
+    parts = []
+    if num:
+        parts.append(".".join(num))
+    if den:
+        parts.append("/" + ".".join(den))
+    return "".join(parts) if parts else None
+
+
+def extract_facts(x: ModelXbrl, wanted_locals: list[str]) -> list[dict]:
+    rows: list[dict] = []
     for f in x.facts:
         c = getattr(f, "concept", None)
-        if not c: 
+        if not c:
             continue
-        ln = c.qname.localName
-        if ln not in wanted_locals:
+        local = c.qname.localName
+        if local not in wanted_locals:
             continue
-        ctx = f.context
+
+        ctx = getattr(f, "context", None)
         ent = getattr(ctx, "entityIdentifierValue", None) if ctx else None
         end = getattr(ctx, "endDatetime", None)
         start = getattr(ctx, "startDatetime", None)
-   unit = None
-if f.unit and f.unit.measures:
-    num = ["*".join(u) for u in (f.unit.measures[0] or [])]
-    den = ["*".join(u) for u in (f.unit.measures[1] or [])]
-    unit = "/".join(filter(None, [".".join(num), ".".join(den)]))
-        rows.append({
-            "concept_local": ln,
-            "entity_lei": ent,
-            "period_start": start.isoformat() if start else None,
-            "period_end": end.isoformat() if end else None,
-            "value": f.value,
-            "unit": unit,
-            "decimals": f.decimals,
-            "source_doc": x.modelDocument.uri,
-        })
+
+        rows.append(
+            {
+                "concept_local": local,
+                "entity_lei": ent,
+                "period_start": start.isoformat() if start else None,
+                "period_end": end.isoformat() if end else None,
+                "value": f.value,
+                "unit": _format_unit(f),
+                "decimals": getattr(f, "decimals", None),
+                "source_doc": x.modelDocument.uri,
+            }
+        )
     return rows
 
-def main():
-    urls = [u.strip() for u in (ROOT/"etl"/"sources_urls.txt").read_text().splitlines() if u.strip() and not u.startswith("#")]
-    all_rows, downloaded = [], []
+
+def main() -> None:
+    urls_file = ROOT / "etl" / "sources_urls.txt"
+    urls = [
+        u.strip()
+        for u in urls_file.read_text().splitlines()
+        if u.strip() and not u.strip().startswith("#")
+    ]
+
+    all_rows: list[dict] = []
+    downloaded: list[tuple[str, str]] = []
+
     for u in urls:
         try:
             p = download(u)
@@ -76,28 +116,39 @@ def main():
             all_rows.extend(extract_facts(x, FACT_LOCALNAMES))
             x.close()
         except Exception as e:
-            all_rows.append({"concept_local":"__ERROR__", "source_doc":u, "value":str(e)})
+            all_rows.append(
+                {"concept_local": "__ERROR__", "source_doc": u, "value": str(e)}
+            )
 
     df = pd.DataFrame(all_rows)
     ts = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    excel_name, csv_name, pq_name = "CarbonTrace_latest.xlsx", "facts_latest.csv", "facts_latest.parquet"
+    excel_name = "CarbonTrace_latest.xlsx"
+    csv_name = "facts_latest.csv"
+    pq_name = "facts_latest.parquet"
 
     if not df.empty:
-        df.to_csv(OUT/csv_name, index=False)
-        df.to_parquet(OUT/pq_name, index=False)
-        with pd.ExcelWriter(OUT/excel_name) as w:
+        df.to_csv(OUT / csv_name, index=False)
+        try:
+            df.to_parquet(OUT / pq_name, index=False)
+        except Exception:
+            # Parquet optionnel (pyarrow peut être absent)
+            pass
+        with pd.ExcelWriter(OUT / excel_name) as w:
             df.to_excel(w, index=False, sheet_name="Facts")
-            pd.DataFrame(downloaded, columns=["url","saved_as"]).to_excel(w, index=False, sheet_name="Sources")
+            pd.DataFrame(downloaded, columns=["url", "saved_as"]).to_excel(
+                w, index=False, sheet_name="Sources"
+            )
 
     manifest = {
         "version": ts,
-        "generated_at_utc": dt.datetime.utcnow().isoformat()+"Z",
+        "generated_at_utc": dt.datetime.utcnow().isoformat() + "Z",
         "rows": int(len(df)),
         "columns": list(df.columns) if not df.empty else [],
         "files": {"excel": excel_name, "csv": csv_name, "parquet": pq_name},
-        "notes": "Finance (Revenue/OPL) today; ESRS Scope1/2 tags ready when available."
+        "notes": "Finance (Revenue/OperatingProfitLoss); ESRS Scope1/2 prêts dès disponibilité.",
     }
-    (OUT/"manifest.json").write_text(json.dumps(manifest, indent=2))
+    (OUT / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
 
 if __name__ == "__main__":
     main()
