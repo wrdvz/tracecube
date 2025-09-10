@@ -12,30 +12,61 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Show tree
+        run: |
+          pwd
+          ls -la
+          ls -la etl || true
+          ls -la etl/*.py || true
+          ls -la etl/requirements.txt || true
+          ls -la etl/sources_urls.txt || true
+          echo "--- sources_urls.txt ---"
+          cat etl/sources_urls.txt || true
+          echo "-----------------------"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install deps
-        run: pip install -r etl/requirements.txt awscli
+        run: |
+          python -V
+          pip install -U pip
+          pip install -r etl/requirements.txt awscli
+          pip list
+
+      - name: Smoke test imports
+        run: |
+          python - << 'PY'
+          import sys, pandas
+          print("Python:", sys.version)
+          import arelle
+          print("Arelle OK at:", arelle.__file__)
+          PY
 
       - name: Run ETL
-        run: python etl/run_etl.py
+        env:
+          # Si tu utilises requests vers filings.xbrl.org
+          HTTP_USER_AGENT: "tracecube/0.1"
+        run: |
+          set -euxo pipefail
+          python -u etl/run_etl.py
+          echo "ETL finished. Out dir:"
+          ls -la data/out
 
       - name: Upload to R2
+        if: always()  # on veut voir l'erreur d'upload même si ETL passe
         env:
-          # ⚠️ utilise R2_ACCOUNT_ID (pas CF_ACCOUNT_ID)
           R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_BUCKET:   ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto  # recommandé par Cloudflare R2
+          AWS_DEFAULT_REGION: auto
         run: |
-          set -e
+          set -euxo pipefail
           TS=$(date -u +"%Y%m%d-%H%M%S")
-          # push version horodatée
+          test -d data/out
           aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
-          # refresh alias latest
           aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
           aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
