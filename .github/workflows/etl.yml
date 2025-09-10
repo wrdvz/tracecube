@@ -42,12 +42,23 @@ jobs:
           import os, sys, time, pathlib
           import boto3
           from botocore.client import Config
+          from urllib.parse import urlparse
 
           raw = os.environ["R2_ENDPOINT"].strip()
-          endpoint = raw if raw.startswith(("http://", "https://")) else f"https://{raw}.r2.cloudflarestorage.com"
-          bucket   = os.environ["R2_BUCKET"]
-          akid     = os.environ["AWS_ACCESS_KEY_ID"]
-          secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          if raw.startswith(("http://", "https://")):
+              u = urlparse(raw)
+              # garde uniquement schéma + host, ignore tout path/query
+              host = u.netloc or u.path  # (au cas où l'URL serait de forme "https://host")
+              scheme = u.scheme or "https"
+              endpoint = f"{scheme}://{host}"
+          else:
+              # si on te donne l'Account ID pur, on construit l'URL R2
+              endpoint = f"https://{raw}.r2.cloudflarestorage.com"
+
+          bucket = os.environ["R2_BUCKET"]
+          akid   = os.environ["AWS_ACCESS_KEY_ID"]
+          secret = os.environ["AWS_SECRET_ACCESS_KEY"]
 
           s3 = boto3.client(
               "s3",
