@@ -1,0 +1,6 @@
+arelle-release
+lxml
+pandas
+pyarrow
+openpyxl
+requests
