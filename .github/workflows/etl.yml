@@ -92,5 +92,4 @@ jobs:
               )
 
           print("Upload complete.")
-          print("Endpoint used:", endpoint)
           PY
