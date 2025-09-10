@@ -1,0 +1,29 @@
+name: ETL to R2
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 2 * * 1"  # hebdo, lundi 02:00 UTC
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install -r etl/requirements.txt awscli
+      - name: Run ETL
+        run: python etl/run_etl.py
+      - name: Configure AWS CLI for R2
+        run: |
+          aws configure set aws_access_key_id "${{ secrets.R2_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ secrets.R2_SECRET_ACCESS_KEY }}"
+          aws configure set default.region auto
+      - name: Upload to R2
+        env:
+          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          TS=$(date -u +"%Y%m%d-%H%M%S")
+          aws --endpoint-url $R2_ENDPOINT s3 cp data/out/ s3://$BUCKET/v/$TS/ --recursive
+          aws --endpoint-url $R2_ENDPOINT s3 rm s3://$BUCKET/latest/ --recursive || true
+          aws --endpoint-url $R2_ENDPOINT s3 cp s3://$BUCKET/v/$TS/ s3://$BUCKET/latest/ --recursive
