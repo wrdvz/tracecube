@@ -121,33 +121,45 @@ def main() -> None:
             )
 
     df = pd.DataFrame(all_rows)
+
     ts = dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    excel_name = "CarbonTrace_latest.xlsx"
-    csv_name = "facts_latest.csv"
-    pq_name = "facts_latest.parquet"
-
-   # 💡 Écrire les fichiers même si df est vide (headers), pour qu’ils apparaissent dans R2
-(OUT / csv_name).write_text("" if df.empty else df.to_csv(index=False))
-if df.empty:
-    # parquet/Excel ont besoin d’un df : on crée un DF vide avec colonnes attendues
-    if not all_rows:
-        df = pd.DataFrame(columns=[
-            "concept_local", "entity_lei", "period_start", "period_end",
-            "value", "unit", "decimals", "source_doc"
-        ])
-
-df.to_parquet(OUT / pq_name, index=False)
-with pd.ExcelWriter(OUT / excel_name) as w:
-    df.to_excel(w, index=False, sheet_name="Facts")
-    pd.DataFrame(downloaded, columns=["url", "saved_as"]).to_excel(
-        w, index=False, sheet_name="Sources"
+    excel_name, csv_name, pq_name = (
+        "CarbonTrace_latest.xlsx",
+        "facts_latest.csv",
+        "facts_latest.parquet",
     )
+
+    # 💡 Écrire les fichiers même si df est vide (headers), pour qu’ils apparaissent dans R2
+    (OUT / csv_name).write_text("" if df.empty else df.to_csv(index=False))
+
+    if df.empty:
+        # parquet/Excel ont besoin d’un df : on crée un DF vide avec colonnes attendues
+        df = pd.DataFrame(
+            columns=[
+                "concept_local",
+                "entity_lei",
+                "period_start",
+                "period_end",
+                "value",
+                "unit",
+                "decimals",
+                "source_doc",
+            ]
+        )
+
+    # Parquet + Excel
+    df.to_parquet(OUT / pq_name, index=False)
+    with pd.ExcelWriter(OUT / excel_name) as w:
+        df.to_excel(w, index=False, sheet_name="Facts")
+        pd.DataFrame(downloaded, columns=["url", "saved_as"]).to_excel(
+            w, index=False, sheet_name="Sources"
+        )
 
     manifest = {
         "version": ts,
         "generated_at_utc": dt.datetime.utcnow().isoformat() + "Z",
         "rows": int(len(df)),
-        "columns": list(df.columns) if not df.empty else [],
+        "columns": list(df.columns),
         "files": {"excel": excel_name, "csv": csv_name, "parquet": pq_name},
         "notes": "Finance (Revenue/OperatingProfitLoss); ESRS Scope1/2 prêts dès disponibilité.",
     }
