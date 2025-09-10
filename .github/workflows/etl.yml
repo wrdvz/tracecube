@@ -38,13 +38,13 @@ jobs:
           AWS_DEFAULT_REGION: auto
           AWS_S3_FORCE_PATH_STYLE: "true"     # 👈 AJOUT
           R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-       run: |
-         set -euxo pipefail
-         shopt -s nullglob
-         FILES=(data/out/*)
-         if [ ${#FILES[@]} -eq 0 ]; then
-         echo "No files in data/out — skipping upload."; exit 0; fi
-         TS=$(date -u +"%Y%m%d-%H%M%S")
-         aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
-         aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
-         aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
+        run: |
+          set -euxo pipefail
+          shopt -s nullglob
+          FILES=(data/out/*)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No files in data/out — skipping upload."; exit 0; fi
+          TS=$(date -u +"%Y%m%d-%H%M%S")
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
+          aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
