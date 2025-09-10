@@ -32,7 +32,7 @@ jobs:
 
       - name: Upload to R2 (if any file exists, via boto3)
         env:
-          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_ENDPOINT: ${{ secrets.R2_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
@@ -92,4 +92,5 @@ jobs:
               )
 
           print("Upload complete.")
+          print("Endpoint used:", endpoint)
           PY
