@@ -17,14 +17,21 @@ FACT_LOCALNAMES = [
 def download(url: str) -> pathlib.Path:
     fn = url.split("/")[-1] or f"file_{hashlib.sha1(url.encode()).hexdigest()}.xbrl"
     p = RAW / fn
-    if not p.exists():
-        r = requests.get(url, timeout=60)
+    if p.exists():
+        return p
+    with requests.get(url, timeout=120, allow_redirects=True, stream=True,
+                      headers={"User-Agent":"tracecube/0.1"}) as r:
         r.raise_for_status()
-        p.write_bytes(r.content)
+        with open(p, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024*1024):
+                if chunk:
+                    f.write(chunk)
     return p
 
 def load_xbrl(path: str) -> ModelXbrl:
     ctrl = Cntlr.Cntlr(logFileName=None)
+    # utilise les taxo packages que tu as chargés, évite les fetch web
+    ctrl.webCache.workOffline = True
     mm = ModelManager.initialize(ctrl)
     return mm.load(path)
 
@@ -38,12 +45,14 @@ def extract_facts(x: ModelXbrl, wanted_locals):
         if ln not in wanted_locals:
             continue
         ctx = f.context
-        ent = ctx.entityIdentifier[1] if ctx else None
+        ent = getattr(ctx, "entityIdentifierValue", None) if ctx else None
         end = getattr(ctx, "endDatetime", None)
         start = getattr(ctx, "startDatetime", None)
-        unit = None
-        if f.unit and f.unit.measures:
-            unit = ":".join(".".join(u) for u in f.unit.measures if u)
+   unit = None
+if f.unit and f.unit.measures:
+    num = ["*".join(u) for u in (f.unit.measures[0] or [])]
+    den = ["*".join(u) for u in (f.unit.measures[1] or [])]
+    unit = "/".join(filter(None, [".".join(num), ".".join(den)]))
         rows.append({
             "concept_local": ln,
             "entity_lei": ent,
