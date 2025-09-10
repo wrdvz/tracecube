@@ -126,18 +126,22 @@ def main() -> None:
     csv_name = "facts_latest.csv"
     pq_name = "facts_latest.parquet"
 
-    if not df.empty:
-        df.to_csv(OUT / csv_name, index=False)
-        try:
-            df.to_parquet(OUT / pq_name, index=False)
-        except Exception:
-            # Parquet optionnel (pyarrow peut être absent)
-            pass
-        with pd.ExcelWriter(OUT / excel_name) as w:
-            df.to_excel(w, index=False, sheet_name="Facts")
-            pd.DataFrame(downloaded, columns=["url", "saved_as"]).to_excel(
-                w, index=False, sheet_name="Sources"
-            )
+   # 💡 Écrire les fichiers même si df est vide (headers), pour qu’ils apparaissent dans R2
+(OUT / csv_name).write_text("" if df.empty else df.to_csv(index=False))
+if df.empty:
+    # parquet/Excel ont besoin d’un df : on crée un DF vide avec colonnes attendues
+    if not all_rows:
+        df = pd.DataFrame(columns=[
+            "concept_local", "entity_lei", "period_start", "period_end",
+            "value", "unit", "decimals", "source_doc"
+        ])
+
+df.to_parquet(OUT / pq_name, index=False)
+with pd.ExcelWriter(OUT / excel_name) as w:
+    df.to_excel(w, index=False, sheet_name="Facts")
+    pd.DataFrame(downloaded, columns=["url", "saved_as"]).to_excel(
+        w, index=False, sheet_name="Sources"
+    )
 
     manifest = {
         "version": ts,
