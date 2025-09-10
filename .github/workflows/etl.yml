@@ -49,19 +49,19 @@ jobs:
           secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
 
           s3 = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=akid,
-            aws_secret_access_key=secret,
-            region_name="auto",
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"})
+              "s3",
+              endpoint_url=endpoint,
+              aws_access_key_id=akid,
+              aws_secret_access_key=secret,
+              region_name="auto",
+              config=Config(signature_version="s3v4", s3={"addressing_style": "path"})
           )
 
           out = pathlib.Path("data/out")
           files = [p for p in out.glob("*") if p.is_file()]
           if not files:
-            print("No files in data/out — skipping upload.")
-            sys.exit(0)
+              print("No files in data/out — skipping upload.")
+              sys.exit(0)
 
           ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
           ver_prefix = f"v/{ts}/"
@@ -69,15 +69,15 @@ jobs:
 
           # upload version horodatée
           for p in files:
-          s3.upload_file(str(p), bucket, ver_prefix + p.name)
+              s3.upload_file(str(p), bucket, ver_prefix + p.name)
 
-          # refresh 'latest' en copiant depuis la version
+          # refresh latest
           for p in files:
-          s3.copy_object(
-            Bucket=bucket,
-            CopySource={"Bucket": bucket, "Key": ver_prefix + p.name},
-            Key=latest_prefix + p.name
-          )
+              s3.copy_object(
+                  Bucket=bucket,
+                  CopySource={"Bucket": bucket, "Key": ver_prefix + p.name},
+                  Key=latest_prefix + p.name
+              )
 
           print("Upload complete.")
           PY
