@@ -20,7 +20,7 @@ jobs:
           aws configure set default.region auto
       - name: Upload to R2
         env:
-          R2_ENDPOINT: https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           BUCKET: ${{ secrets.R2_BUCKET }}
         run: |
           TS=$(date -u +"%Y%m%d-%H%M%S")
