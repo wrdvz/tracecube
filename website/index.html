@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8">
+<title>Carbon Trace — XBRL → Excel</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:16px/1.45 system-ui;margin:40px;max-width:820px}.btn{padding:12px 16px;border:1px solid #ddd;border-radius:10px;text-decoration:none}.card{border:1px solid #eee;border-radius:12px;padding:16px;background:#fafafa}</style>
+<h1>Carbon Trace</h1>
+<p>Excel gratuit auto-mis à jour depuis des rapports XBRL/iXBRL (aujourd’hui finance ESEF; demain ESRS Scope 1 & 2).</p>
+<div class="card">
+  <p><b>Télécharger</b></p>
+  <p><a id="dl" class="btn" href="#">📥 Télécharger l’Excel</a></p>
+  <small id="meta">Chargement…</small>
+</div>
+<script>
+  // ⚠️ Remplace par l’URL publique de ton bucket R2 + le suffixe /latest/
+  const R2_BASE = "https://REPLACE_THIS.r2.dev/latest/";
+  fetch(R2_BASE + "manifest.json").then(r=>r.json()).then(m=>{
+    document.getElementById('dl').href = R2_BASE + m.files.excel;
+    document.getElementById('meta').textContent = `Version ${m.version} — généré le ${new Date(m.generated_at_utc).toLocaleString()} — ${m.rows} lignes`;
+  }).catch(()=>{document.getElementById('meta').textContent="Manifest introuvable (attends le premier run)."})
+</script>
