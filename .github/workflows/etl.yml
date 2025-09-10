@@ -21,7 +21,7 @@ jobs:
         run: |
           python -V
           pip install -U pip wheel
-          pip install -r etl/requirements.txt awscli
+          pip install -r etl/requirements.txt awscli boto3
 
       - name: Run ETL (produce files in data/out)
         run: |
@@ -30,21 +30,54 @@ jobs:
           python -u etl/run_etl.py
           ls -la data/out || true
 
-      - name: Upload to R2 (if any file exists)
+      - name: Upload to R2 (if any file exists, via boto3)
         env:
           R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          AWS_S3_FORCE_PATH_STYLE: "true"     # 👈 AJOUT
           R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           set -euxo pipefail
-          shopt -s nullglob
-          FILES=(data/out/*)
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No files in data/out — skipping upload."; exit 0; fi
-          TS=$(date -u +"%Y%m%d-%H%M%S")
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
-          aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
+          python - << 'PY'
+          import os, sys, time, pathlib
+          import boto3
+          from botocore.client import Config
+
+          endpoint = os.environ["R2_ENDPOINT"]
+          bucket   = os.environ["R2_BUCKET"]
+          akid     = os.environ["AWS_ACCESS_KEY_ID"]
+          secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
+
+          s3 = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=akid,
+            aws_secret_access_key=secret,
+            region_name="auto",
+            config=Config(signature_version="s3v4", s3={"addressing_style": "path"})
+          )
+
+          out = pathlib.Path("data/out")
+          files = [p for p in out.glob("*") if p.is_file()]
+          if not files:
+            print("No files in data/out — skipping upload.")
+            sys.exit(0)
+
+          ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+          ver_prefix = f"v/{ts}/"
+          latest_prefix = "latest/"
+
+          # upload version horodatée
+          for p in files:
+          s3.upload_file(str(p), bucket, ver_prefix + p.name)
+
+          # refresh 'latest' en copiant depuis la version
+          for p in files:
+          s3.copy_object(
+            Bucket=bucket,
+            CopySource={"Bucket": bucket, "Key": ver_prefix + p.name},
+            Key=latest_prefix + p.name
+          )
+
+          print("Upload complete.")
+          PY
