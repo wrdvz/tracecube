@@ -56,17 +56,21 @@ jobs:
           ls -la data/out
 
       - name: Upload to R2
-        if: always()  # on veut voir l'erreur d'upload même si ETL passe
-        env:
-          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET_NAME:   ${{ secrets.R2_BUCKET_NAME }}
-          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-        run: |
-          set -euxo pipefail
-          TS=$(date -u +"%Y%m%d-%H%M%S")
-          test -d data/out
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
-          aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
+  env:
+    R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    # mappe ton secret R2_BUCKET_NAME -> variable R2_BUCKET attendue par la commande
+    R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
+    AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    AWS_DEFAULT_REGION: auto
+  run: |
+    set -euxo pipefail
+    mkdir -p data/out
+    shopt -s nullglob
+    FILES=(data/out/*)
+    if [ ${#FILES[@]} -eq 0 ]; then
+      echo "No files in data/out, skipping upload."; exit 0; fi
+    TS=$(date -u +"%Y%m%d-%H%M%S")
+    aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
+    aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
+    aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
