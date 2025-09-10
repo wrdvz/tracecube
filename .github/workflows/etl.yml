@@ -43,7 +43,8 @@ jobs:
           import boto3
           from botocore.client import Config
 
-          endpoint = os.environ["R2_ENDPOINT"]
+          raw = os.environ["R2_ENDPOINT"].strip()
+          endpoint = raw if raw.startswith(("http://", "https://")) else f"https://{raw}.r2.cloudflarestorage.com"
           bucket   = os.environ["R2_BUCKET"]
           akid     = os.environ["AWS_ACCESS_KEY_ID"]
           secret   = os.environ["AWS_SECRET_ACCESS_KEY"]
