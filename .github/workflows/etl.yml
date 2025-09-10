@@ -1,29 +1,41 @@
 name: ETL to R2
+
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 2 * * 1"  # hebdo, lundi 02:00 UTC
+    - cron: "0 2 * * 1"  # lundi 02:00 UTC
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r etl/requirements.txt awscli
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: pip install -r etl/requirements.txt awscli
+
       - name: Run ETL
         run: python etl/run_etl.py
-      - name: Configure AWS CLI for R2
-        run: |
-          aws configure set aws_access_key_id "${{ secrets.R2_ACCESS_KEY_ID }}"
-          aws configure set aws_secret_access_key "${{ secrets.R2_SECRET_ACCESS_KEY }}"
-          aws configure set default.region auto
+
       - name: Upload to R2
         env:
+          # ⚠️ utilise R2_ACCOUNT_ID (pas CF_ACCOUNT_ID)
           R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto  # recommandé par Cloudflare R2
         run: |
+          set -e
           TS=$(date -u +"%Y%m%d-%H%M%S")
-          aws --endpoint-url $R2_ENDPOINT s3 cp data/out/ s3://$BUCKET/v/$TS/ --recursive
-          aws --endpoint-url $R2_ENDPOINT s3 rm s3://$BUCKET/latest/ --recursive || true
-          aws --endpoint-url $R2_ENDPOINT s3 cp s3://$BUCKET/v/$TS/ s3://$BUCKET/latest/ --recursive
+          # push version horodatée
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
+          # refresh alias latest
+          aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
