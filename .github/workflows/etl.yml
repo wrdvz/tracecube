@@ -1,76 +1,51 @@
 name: ETL to R2
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
   schedule:
-    - cron: "0 2 * * 1"  # lundi 02:00 UTC
+    - cron: '0 2 * * 1'   # lundi 02:00 UTC
 
 jobs:
-  run:
+  etl:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Show tree
-        run: |
-          pwd
-          ls -la
-          ls -la etl || true
-          ls -la etl/*.py || true
-          ls -la etl/requirements.txt || true
-          ls -la etl/sources_urls.txt || true
-          echo "--- sources_urls.txt ---"
-          cat etl/sources_urls.txt || true
-          echo "-----------------------"
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install deps
         run: |
           python -V
-          pip install -U pip
+          pip install -U pip wheel
           pip install -r etl/requirements.txt awscli
-          pip list
 
-      - name: Smoke test imports
-        run: |
-          python - << 'PY'
-          import sys, pandas
-          print("Python:", sys.version)
-          import arelle
-          print("Arelle OK at:", arelle.__file__)
-          PY
-
-      - name: Run ETL
-        env:
-          # Si tu utilises requests vers filings.xbrl.org
-          HTTP_USER_AGENT: "tracecube/0.1"
+      - name: Run ETL (produce files in data/out)
         run: |
           set -euxo pipefail
+          mkdir -p data/out
           python -u etl/run_etl.py
-          echo "ETL finished. Out dir:"
-          ls -la data/out
+          ls -la data/out || true
 
-      - name: Upload to R2
-  env:
-    R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-    # mappe ton secret R2_BUCKET_NAME -> variable R2_BUCKET attendue par la commande
-    R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}
-    AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-    AWS_DEFAULT_REGION: auto
-  run: |
-    set -euxo pipefail
-    mkdir -p data/out
-    shopt -s nullglob
-    FILES=(data/out/*)
-    if [ ${#FILES[@]} -eq 0 ]; then
-      echo "No files in data/out, skipping upload."; exit 0; fi
-    TS=$(date -u +"%Y%m%d-%H%M%S")
-    aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
-    aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
-    aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
+      - name: Upload to R2 (if any file exists)
+        env:
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          # ⚠️ Choisis l’un des deux selon ton secret :
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}          # si ton secret s'appelle R2_BUCKET
+          # R2_BUCKET: ${{ secrets.R2_BUCKET_NAME }}   # sinon, décommente cette ligne et commente celle du dessus
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euxo pipefail
+          shopt -s nullglob
+          FILES=(data/out/*)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No files in data/out — skipping upload."; exit 0; fi
+          TS=$(date -u +"%Y%m%d-%H%M%S")
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp data/out/ "s3://$R2_BUCKET/v/$TS/" --recursive
+          aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://$R2_BUCKET/latest/" --recursive || true
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp "s3://$R2_BUCKET/v/$TS/" "s3://$R2_BUCKET/latest/" --recursive
