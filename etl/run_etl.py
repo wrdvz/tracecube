@@ -140,6 +140,7 @@ def main() -> None:
             inst = path_to_instance(p)
             downloaded.append((u, inst.name)) 
             x = load_xbrl(str(inst)) 
+            print(f"[{inst.name}] facts: {len(getattr(x, 'facts', []))}")
             all_rows.extend(extract_facts(x, FACT_LOCALNAMES))
             x.close()
         except Exception as e:
