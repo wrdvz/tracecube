@@ -5,6 +5,7 @@ import datetime as dt
 import requests
 import pandas as pd
 import zipfile
+import gzip, shutil
 
 from arelle import Cntlr, ModelManager
 from arelle.ModelXbrl import ModelXbrl
@@ -54,18 +55,40 @@ def download(url: str) -> pathlib.Path:
     return path
 
 def path_to_instance(p: pathlib.Path) -> pathlib.Path:
-    """Si p est un .zip, on extrait et on retourne le premier .xhtml/.xbrl trouvable."""
+    """Si p est un .zip, on extrait et on retourne le premier iXBRL trouvé.
+    Supporte *.xhtml, *.html, et leurs variantes *.xhtml.gz / *.html.gz.
+    """
     p = pathlib.Path(p)
     if p.suffix.lower() != ".zip":
         return p
+
     outdir = RAW / (p.stem + "_unzipped")
     outdir.mkdir(parents=True, exist_ok=True)
+
     with zipfile.ZipFile(p, "r") as z:
         z.extractall(outdir)
-    # prioriser les iXBRL
-    candidates = list(outdir.rglob("*.xhtml")) + list(outdir.rglob("*.xbrl"))
+
+    # 1) candidats non compressés (priorité iXBRL)
+    plain = list(outdir.rglob("*.xhtml")) + list(outdir.rglob("*.html"))
+    # 2) candidats .gz (souvent dans /reports/)
+    gz = list(outdir.rglob("*.xhtml.gz")) + list(outdir.rglob("*.html.gz"))
+
+    candidates: list[pathlib.Path] = []
+
+    if plain:
+        candidates = plain
+    elif gz:
+        # on décompresse le premier .gz trouvé à côté, et on l'utilise
+        gz_path = sorted(gz, key=lambda x: (0 if "reports" in x.parts else 1, len(str(x))))[0]
+        target = gz_path.with_suffix("")  # retire l'extension .gz -> .xhtml/.html
+        if not target.exists():
+            with gzip.open(gz_path, "rb") as fin, open(target, "wb") as fout:
+                shutil.copyfileobj(fin, fout)
+        candidates = [target]
+
     if not candidates:
-        raise FileNotFoundError(f"Aucune instance iXBRL/XBRL dans {p.name}")
+        raise FileNotFoundError(f"Aucune instance iXBRL/XBRL (même .gz) dans {p.name}")
+
     # petit tri: souvent dans /reports/
     candidates.sort(key=lambda x: (0 if "reports" in x.parts else 1, len(str(x))))
     return candidates[0]
@@ -141,6 +164,7 @@ def main() -> None:
             downloaded.append((u, inst.name)) 
             x = load_xbrl(str(inst)) 
             print(f"[{inst.name}] facts: {len(getattr(x, 'facts', []))}")
+            print(f"[unzip] instance: {inst}")
             all_rows.extend(extract_facts(x, FACT_LOCALNAMES))
             x.close()
         except Exception as e:
