@@ -17,8 +17,16 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 # Démo : tags finance (IFRS/ESEF) + tags climat (ESRS) prêts
 FACT_LOCALNAMES = [
+    # ventes / revenus
     "Revenue",
+    "SalesRevenueNet",
+    "RevenueFromContractsWithCustomersExcludingAssessedTax",
+
+    # résultat
     "OperatingProfitLoss",
+    "ProfitLoss",
+
+    # climat (quand ESRS sera dispo)
     "GreenhouseGasScope1Emissions",
     "GreenhouseGasScope2EmissionsLocationBased",
     "GreenhouseGasScope2EmissionsMarketBased",
