@@ -4,6 +4,7 @@ import json
 import datetime as dt
 import requests
 import pandas as pd
+import zipfile
 
 from arelle import Cntlr, ModelManager
 from arelle.ModelXbrl import ModelXbrl
@@ -44,6 +45,22 @@ def download(url: str) -> pathlib.Path:
                     f.write(chunk)
     return path
 
+def path_to_instance(p: pathlib.Path) -> pathlib.Path:
+    """Si p est un .zip, on extrait et on retourne le premier .xhtml/.xbrl trouvable."""
+    p = pathlib.Path(p)
+    if p.suffix.lower() != ".zip":
+        return p
+    outdir = RAW / (p.stem + "_unzipped")
+    outdir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(p, "r") as z:
+        z.extractall(outdir)
+    # prioriser les iXBRL
+    candidates = list(outdir.rglob("*.xhtml")) + list(outdir.rglob("*.xbrl"))
+    if not candidates:
+        raise FileNotFoundError(f"Aucune instance iXBRL/XBRL dans {p.name}")
+    # petit tri: souvent dans /reports/
+    candidates.sort(key=lambda x: (0 if "reports" in x.parts else 1, len(str(x))))
+    return candidates[0]
 
 def load_xbrl(path: str) -> ModelXbrl:
     """Charge l'instance XBRL avec Arelle en mode offline (utilise les taxo locales)."""
@@ -111,8 +128,9 @@ def main() -> None:
     for u in urls:
         try:
             p = download(u)
-            downloaded.append((u, p.name))
-            x = load_xbrl(str(p))
+            inst = path_to_instance(p)
+            downloaded.append((u, inst.name)) 
+            x = load_xbrl(str(inst)) 
             all_rows.extend(extract_facts(x, FACT_LOCALNAMES))
             x.close()
         except Exception as e:
