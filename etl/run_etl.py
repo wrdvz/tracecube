@@ -65,7 +65,8 @@ def path_to_instance(p: pathlib.Path) -> pathlib.Path:
 def load_xbrl(path: str) -> ModelXbrl:
     """Charge l'instance XBRL avec Arelle en mode offline (utilise les taxo locales)."""
     ctrl = Cntlr.Cntlr(logFileName=None)
-    ctrl.webCache.workOffline = True
+    ctrl.webCache.workOffline = False
+    ctrl.webCache.timeout = 60  
     mm = ModelManager.initialize(ctrl)
     return mm.load(path)
 
