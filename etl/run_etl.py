@@ -33,6 +33,15 @@ FACT_LOCALNAMES = [
     "GreenhouseGasScope2EmissionsMarketBased",
 ]
 
+# On capte aussi des variantes IFRS usuelles + extensions contenant ces mots-clés
+FACT_LOCALNAMES_EXTRA = {
+    "Revenues", "SalesRevenueNet",
+    "RevenueFromContractsWithCustomersExcludingAssessedTax",
+    "ProfitLoss", "ProfitLossFromOperatingActivities",
+    "OperatingIncomeLoss", "GrossProfit"
+}
+FACT_KEYWORDS = ("revenue", "revenu", "sales", "profit", "loss")
+
 
 def download(url: str) -> pathlib.Path:
     """Télécharge en mode robuste (ZIP lourds ok)."""
@@ -94,13 +103,28 @@ def path_to_instance(p: pathlib.Path) -> pathlib.Path:
     return candidates[0]
 
 def load_xbrl(path: str) -> ModelXbrl:
-    """Charge l'instance XBRL avec Arelle en mode offline (utilise les taxo locales)."""
-    ctrl = Cntlr.Cntlr(logFileName=None)
+    """Charge l'instance XBRL avec Arelle et log dans data/out/arelle.log."""
+    log_path = OUT / "arelle.log"
+    ctrl = Cntlr.Cntlr(logFileName=str(log_path))
+    # important: online pour résoudre les taxos manquantes dans le runner
     ctrl.webCache.workOffline = False
-    ctrl.webCache.timeout = 60  
     mm = ModelManager.initialize(ctrl)
     return mm.load(path)
 
+def dump_sample_facts(x: ModelXbrl, limit: int = 200) -> None:
+    """Écrit un échantillon des facts (concept qname/local, value…) pour debug."""
+    rows = []
+    for f in x.facts[:limit]:
+        qn = getattr(f, "concept", None).qname if getattr(f, "concept", None) else None
+        rows.append({
+            "concept_qname": str(qn) if qn else None,
+            "local": qn.localName if qn else None,
+            "namespace": qn.namespaceURI if qn else None,
+            "value": f.value,
+            "decimals": getattr(f, "decimals", None),
+            "is_nil": getattr(f, "isNil", False),
+        })
+    pd.DataFrame(rows).to_csv(OUT / "facts_sample.csv", index=False)
 
 def _format_unit(fact) -> str | None:
     """Formate l'unité (ex: ISO4217.EUR)."""
@@ -123,11 +147,24 @@ def extract_facts(x: ModelXbrl, wanted_locals: list[str]) -> list[dict]:
         if not c:
             continue
         local = c.qname.localName
-        if local not in wanted_locals:
+
+        keep = (
+            (local in wanted_locals) or
+            (local in FACT_LOCALNAMES_EXTRA) or
+            any(k in local.lower() for k in FACT_KEYWORDS)
+        )
+        if not keep:
             continue
 
         ctx = getattr(f, "context", None)
-        ent = getattr(ctx, "entityIdentifierValue", None) if ctx else None
+        ent = None
+        if ctx:
+            try:
+                # certains filings exposent comme tuple (scheme, value)
+                ent = ctx.entityIdentifier[1]
+            except Exception:
+                ent = getattr(ctx, "entityIdentifierValue", None)
+
         end = getattr(ctx, "endDatetime", None)
         start = getattr(ctx, "startDatetime", None)
 
@@ -163,6 +200,7 @@ def main() -> None:
             inst = path_to_instance(p)
             downloaded.append((u, inst.name)) 
             x = load_xbrl(str(inst)) 
+            dump_sample_facts(x, limit=300)
             print(f"[{inst.name}] facts: {len(getattr(x, 'facts', []))}")
             print(f"[unzip] instance: {inst}")
             all_rows.extend(extract_facts(x, FACT_LOCALNAMES))
